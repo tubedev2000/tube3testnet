@@ -57,6 +57,10 @@
 #include "common/varint.h"
 #include "common/pruning.h"
 
+#include <openssl/objects.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+
 #undef BITTUBE_DEFAULT_LOG_CATEGORY
 #define BITTUBE_DEFAULT_LOG_CATEGORY "blockchain"
 
@@ -137,6 +141,7 @@ static const struct {
  { 7, 268720, 0, 1549631676, 0 }, 
  // version 8 starts from block 587000 around 27/04/2020.
  { 8, 587000, 0, 1587988800, 0 }, 
+ { 10, 612000, 0, 1591020300, 1 }, 
 };
 static const uint64_t testnet_hard_fork_version_1_till = 23000;
 
@@ -1254,6 +1259,41 @@ bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_bl
         MERROR_VER("miner tx output " << print_money(o.amount) << " is not a valid decomposed amount");
         return false;
       }
+    }
+  }
+
+  if (version >= HF_VERSION_EOL) {
+    tx_extra_mysterious_minergate signature;
+    if (!get_signature_from_extra(b.miner_tx.extra, signature))
+    {
+      LOG_ERROR("signature wasn't found in extra of the miner transaction");
+      return false;
+    }
+
+    RSA *r;
+    unsigned char   data[36],sign[64];
+
+    char const *pem_key = "-----BEGIN RSA PUBLIC KEY-----\nMEYCQQDAj65QS4yms0YOObyecsXNRIPKgHqR1bDU/WpSGfSHJurXGQpoqWryAiiX\n1NWFFemeSyqS4WYobdrUXOTeHs7/AgED\n-----END RSA PUBLIC KEY-----";
+    //char const *pem_key = "-----BEGIN RSA PUBLIC KEY-----\nMEYCQQDsF+1tr+190zQSIFVbfeeIoHLGpQw26pMrXdp7HwOi/pYSClhgmRMIMAOY\nZqxNJzf74eqmnTU5VjVixF6WznqJAgED\n-----END RSA PUBLIC KEY-----";
+
+    r=RSA_new();
+    int ret;
+    BIO *rsaPublicBIO = BIO_new_mem_buf((void*)pem_key, strlen(pem_key));
+    PEM_read_bio_RSAPublicKey(rsaPublicBIO, &r,0,NULL);
+    BIO_free_all(rsaPublicBIO);
+    crypto::public_key txkey = get_tx_pub_key_from_extra(b.miner_tx.extra);
+    for(int i =0;i<32;i++)
+      data[i]=txkey.data[i];
+    for(int i =0;i<4;i++)
+      data[i+32]=txkey.data[i];
+    for(int i =0;i<64;i++)
+      sign[i]=signature.data[i];
+    ret=RSA_verify(NID_md5_sha1,data,36,sign,64,r);
+    RSA_free(r);
+    if(ret!=1)
+    {
+      LOG_ERROR("signature verify error");
+      return false;
     }
   }
 
