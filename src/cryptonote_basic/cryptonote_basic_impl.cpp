@@ -144,7 +144,7 @@ namespace cryptonote {
     }
     if (version >= HF_VERSION_EOL)
     {
-      base_reward = 0;
+      base_reward = 1;
     }
     uint64_t product_hi;
     // BUGFIX: 32-bit saturation bug (e.g. ARM7), the result was being
